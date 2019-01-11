@@ -1,4 +1,13 @@
 #!/bin/bash
+
+# CHECK QIIME2 IN PATH
+CHECK="$(command -v qiime)";
+if [[ "$CHECK" == "" ]]; then
+	echo "ERROR: Qiime was not found in the path."
+	exit 9;
+fi
+
+
 set -euo pipefail
 
 # This script requires
@@ -40,7 +49,7 @@ do
                         o) OUTPUT_DIR=${OPTARG};;
                         i) INPUT=${OPTARG};;
 			l) TRUNC_LEN=${OPTARG};;
-                        v) VERBOSE=1;;
+                        v) VERBOSE=1; set -x;;
 			t) THREADS=${OPTARG};;
 			e) MAX_EE=${OPTARG};;
                         ?) echo " Wrong parameter $OPTARG";;
@@ -142,7 +151,7 @@ qiime diversity beta-group-significance \
 
 fi
 
-check=`echo "$CATEGORY" | grep -E ^\-?[0-9]*\.?[0-9]+$`
+#check=`echo "$CATEGORY" | grep -E ^\-?[0-9]*\.?[0-9]+$`
 if [ "$NUMERIC" != '' ]; then
     echo " - Emperor"
     qiime emperor plot \
@@ -175,4 +184,36 @@ qiime taxa barplot \
   --i-taxonomy "$OUTPUT_DIR/taxonomy.qza" \
   --m-metadata-file "$MAPPING" \
   --o-visualization "$OUTPUT_DIR/taxa-bar-plots.qzv"
+fi
+
+if [[ ! -e "$OUTPUT_DIR/l6-ancom-$CATEGORY.qzv" ]]; then
+echo " - Differential abundance: pseudocounts"
+qiime composition add-pseudocount \
+  --i-table "$OUTPUT_DIR/table.qza" \
+  --o-composition-table "$OUTPUT_DIR/comp-table.qza"
+
+echo " - Differential abundance: ancom"
+qiime composition ancom \
+  --i-table "$OUTPUT_DIR/comp-table.qza" \
+  --m-metadata-file "$MAPPING" \
+  --m-metadata-column "$CATEGORY" \
+  --o-visualization "$OUTPUT_DIR/ancom-${CATEGORY}.qzv"
+
+echo " - Differential abundance: L6"
+qiime taxa collapse \
+  --i-table "$OUTPUT_DIR/table.qza" \
+  --i-taxonomy "$OUTPUT_DIR/taxonomy.qza" \
+  --p-level 6 \
+  --o-collapsed-table "$OUTPUT_DIR/table-l6.qza"
+
+qiime composition add-pseudocount \
+  --i-table "$OUTPUT_DIR/table-l6.qza" \
+  --o-composition-table "$OUTPUT_DIR/comp-table-l6.qza"
+
+qiime composition ancom \
+  --i-table "$OUTPUT_DIR/comp-table-l6.qza" \
+  --m-metadata-file "$MAPPING" \
+  --m-metadata-column "$CATEGORY" \
+  --o-visualization "$OUTPUT_DIR/l6-ancom-$CATEGORY.qzv"
+
 fi
