@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 my $rdp_flag;
-my $userdp = " -t /lustre/telatin/db/trainset14_032015.rdp.tax -r /lustre/telatin/db/trainset14_032015.rdp.fasta ";
+my $userdp = " -t /path/to/trainset14_032015.rdp.tax -r /path/to/trainset14_032015.rdp.fasta ";
 use strict;
 
 
@@ -69,11 +69,11 @@ my $nofilter;
 my $get_opt =GetOptions(
 	'i|input-directory=s' => \$input_directory,
 	'o|output-directory=s'=> \$output_directory,
-    'h|help'              => \$help,
-    'm|mapping-file=s'    => \$mapping_file,
-    'f|nofilter'          => \$nofilter,
-    'rdp'                 => \$enable_rdp,
-    'd|debug'             => \$debug
+        'h|help'              => \$help,
+        'm|mapping-file=s'    => \$mapping_file,
+        'f|nofilter'          => \$nofilter,
+        'rdp'                 => \$enable_rdp,
+        'd|debug'             => \$debug
 );
 
 pod2usage({-exitval => 0, -verbose => 2}) if ($help);
