@@ -7,11 +7,15 @@ This repository contains scripts and methods used for the analysis of
 mice to unravel the role of mucin-derived sialic acids.
 
 
-## Metadata
-
 ## Scripts
 
-The `scripts` directory contains the scripts used to produce results
+The `scripts` directory contains the scripts used to produce results. 
+To install Qiime 1.9 and/or Qiime 2.0 we used [Miniconda environments](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html): in particular [this instructions](https://hub.docker.com/search?q=qiime&type=image) for Qiime 1.9 and [this page](https://docs.qiime2.org/2019.1/install/native/) for Qiime 2x.
+
+[Docker containers](https://hub.docker.com/search?q=qiime&type=image) are a viable alternative.
+
+
+## Metadata
 
 ## Methods
 
