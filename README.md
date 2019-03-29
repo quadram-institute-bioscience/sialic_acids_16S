@@ -17,6 +17,23 @@ To install Qiime 1.9 and/or Qiime 2.0 we used [Miniconda environments](https://d
 
 ## Metadata
 
+This is the samplesheet:
+
+| SampleID | BarcodeSequence  | LinkerPrimerSequence | Treatment | Reverseprimer       | Description |
+| -------- | ---------------- | -------------------- | --------- | ------------------- | ----------- |
+| S6262    | GGGGGGGGGGGGGGTT | TCCTACGGGAGGCAGCAGT  | LowFat    | TCCTACGGGAGGCAGCAGT | Low62       |
+| S6263    | GGGGGGGGGGGGCCTT | TCCTACGGGAGGCAGCAGT  | LowFat    | TCCTACGGGAGGCAGCAGT | Low63       |
+| S6264    | GGGGGGGGGGGGAAGG | TCCTACGGGAGGCAGCAGT  | LowFat    | TCCTACGGGAGGCAGCAGT | Low64       |
+| S6265    | GGGGGGGGGGGGCCGG | TCCTACGGGAGGCAGCAGT  | LowFat    | TCCTACGGGAGGCAGCAGT | Low65       |
+| S6266    | GGGGGGGGGGGGGGCC | TCCTACGGGAGGCAGCAGT  | Control   | TCCTACGGGAGGCAGCAGT | Ctr66       |
+| S6267    | GGGGGGGGGGGGGGAA | TCCTACGGGAGGCAGCAGT  | Control   | TCCTACGGGAGGCAGCAGT | Ctr67       |
+| S6268    | GGGGGGGGGGGGAACC | TCCTACGGGAGGCAGCAGT  | Control   | TCCTACGGGAGGCAGCAGT | Ctr68       |
+| S6269    | GGGGGGGGGGGGCCCC | TCCTACGGGAGGCAGCAGT  | HighFat   | TCCTACGGGAGGCAGCAGT | Hi69        |
+| S6270    | GGGGGGGGGGGGAAAA | TCCTACGGGAGGCAGCAGT  | HighFat   | TCCTACGGGAGGCAGCAGT | Hi70        |
+| S6271    | GGGGGGGGGGGGAATT | TCCTACGGGAGGCAGCAGT  | HighFat   | TCCTACGGGAGGCAGCAGT | Hi71        |
+| S6272    | GGGGGGGGGGGGCCAA | TCCTACGGGAGGCAGCAGT  | HighFat   | TCCTACGGGAGGCAGCAGT | Hi72        |
+
+
 ## Methods
 
 ## Reference
