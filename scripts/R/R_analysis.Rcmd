@@ -1,0 +1,956 @@
+---
+title: "Sialic acid, dietary intervention and microbiome in Mice"
+author: "George Savva"
+date: "23 April 2019"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, dev="svg")
+```
+
+
+``` {r include=FALSE}
+library(readxl)
+library(reshape2)
+library(glmmTMB)
+library(ggplot2)
+library(sjstats)
+library(sjPlot)
+library(GGally)
+library(tibble)
+library(gridExtra)
+
+library(dplyr)
+
+### This the levels of acids in different areas in different mice.
+SAdata <- read_excel(path="../Copy of Data SA Sandra.xlsx",sheet="Sheet3")
+SAdatalong <- melt(SAdata, id.vars=c(1,2,3))
+SAdatalong$diet <- factor(SAdatalong$diet )
+SAdatalong$region <- factor(unlist(lapply(strsplit(as.character(SAdatalong$variable), '*',fixed=TRUE),'[[',1)))
+SAdatalong$sa <- factor(unlist(lapply(strsplit(as.character(SAdatalong$variable), '*',fixed=TRUE),'[[',2)))
+SAdatalong$variable <- NULL
+
+ggpairs(data=SAdata, columns=c("CC*Neu5, Gc9Ac","Serum*Neu5, 8Ac2","Brain*Neu5, 8Ac2", "Serum*Neu5,7Ac2","CC*Neu5,7Ac2" ))
+
+cor(SAdata[,4:21], use="pairwise", method="spearman")
+
+## Brain acids are correlatd with each other
+## Serum acids are correlated with each other
+## No correlation within CC acids
+## No correlation between brain, serum or cc acids.
+
+## This suggests that the ideal model must include a region specific correlation term, and allow the within-mouse variances to be different in different regions?
+
+corplot1 <- corrplot::corrplot(cor(SAdata[,4:21], use="pairwise", method="spearman"), order="hclust")
+
+## Factor analysis does create two factors corresponding broadly to 'brain' and 'serum' values.
+factanal( covmat=cor(log(SAdata[,4:21]+.1), use="pairwise", method="pearson"), factors=2, n.obs=30)
+
+## But they don't look very helpful as they don't explain much variance, I think its better to consider each
+## outcome separately.
+
+## FIRST TASK:
+## Look at differences in SA across diets?
+
+glmmTMB1 <- glmmTMB( data=SAdatalong , value ~ diet + (1|id2/region) + sa + region)
+tab_model(glmmTMB1)
+
+ggplot(data = SAdatalong, aes(y=value, x=diet)) + geom_boxplot() + 
+      geom_text(aes(label=id2,x=as.numeric(diet))) + 
+      facet_wrap( ~ region + sa, scales = "free_y",nrow=3)
+
+## remove outliers (visually). Three outlying values removed from diet 2.
+## Justification - these outliers are huge, and cannot be interpreted except on their own.  No analysis of the 
+## sialic dataset would make any sense if these were included.
+## Two visualisations of the sialic acids data, labelled, by group etc. 
+SAdatalong$value2 <- SAdatalong$value
+SAdatalong$value2[SAdatalong$sa=="Neu5Gc" & SAdatalong$region=="Brain" & SAdatalong$id2=="2G"] <- NA
+SAdatalong$value2[SAdatalong$sa=="Neu5Gc" & SAdatalong$region=="Serum" & SAdatalong$id2=="2G"] <- NA
+SAdatalong$value2[SAdatalong$sa=="Neu5, 9Ac2" & SAdatalong$region=="Serum" & SAdatalong$id2=="2C"] <- NA
+
+## Plot the distributions
+ggplot(data = SAdatalong, aes(y=value2, x=diet)) + geom_boxplot() + 
+  geom_text(aes(label=id2,x=as.numeric(diet))) + 
+  facet_wrap( ~ region + sa, scales = "free_y",nrow=3) + ggtitle("Acids varying across diets within each area") 
+
+ggplot(data = SAdatalong, aes(y=value2, x=sa)) + geom_boxplot() + 
+  geom_text(aes(label=id2,x=as.numeric(sa))) + 
+  facet_wrap( ~ region + diet, scales = "free_y",nrow=3) + ggtitle("Relationship between acids within each area")
+
+## Now normalise the values (by the within acid/group mean and sd) so that we can analyse together on the same scale.
+## Effects are now 'per standard deviation'.
+
+SAdatalong$means <- ave(SAdatalong$value2, SAdatalong$sa,SAdatalong$region, FUN=function(x) mean(x,na.rm=TRUE))
+SAdatalong$medians <- ave(SAdatalong$value2, SAdatalong$sa,SAdatalong$region, FUN=function(x) median(x,na.rm=TRUE))
+SAdatalong$sd <- ave(SAdatalong$value2, SAdatalong$sa,SAdatalong$region, FUN=function(x) sd(x,na.rm=TRUE))
+
+## This is the primary outcome measure.
+SAdatalong$valuenorm <- (SAdatalong$value2-SAdatalong$means) / SAdatalong$sd
+
+## Alternatively we can take logs (plus a small constant for the zeros).
+## This outcome doesn't exclude any outlier.
+SAdatalong$logvalue <- log(SAdatalong$value + 0.1)
+
+
+## This is the normalised plot.
+figure_normalised <- ggplot(data = SAdatalong, aes(y=valuenorm, x=sa)) + geom_boxplot() + 
+  geom_text(aes(label=id2,x=as.numeric(sa))) + 
+  geom_line(aes(group=id2,color=id2)) + 
+  facet_wrap( ~ region + diet, nrow=3) + theme_light() + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + theme(legend.position="none") + 
+  ggtitle("Acids normalised within acid/region to enable comparison across diets")
+
+## Ordered differently
+figure_normalised <- ggplot(data = SAdatalong, aes(y=valuenorm, x=diet)) + geom_boxplot() + 
+  geom_text(aes(label=id2,x=as.numeric(diet))) + 
+    facet_wrap( ~ region + sa, nrow=3) + theme_light() + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + theme(legend.position="none") + 
+  ggtitle("Acids normalised within acid/region to enable comparison across diets")
+
+## If we used a log scale instead
+(figure_log <- ggplot(data = SAdatalong, aes(y=logvalue, x=sa)) + geom_boxplot() + 
+  geom_text(aes(label=id2,x=as.numeric(sa))) + 
+  geom_line(aes(group=id2,color=id2)) + 
+  facet_wrap( ~ region + diet, nrow=3) + theme_light() + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + theme(legend.position="none") + 
+    ggtitle("Acid concentrations log-transformed"))
+
+## Ordered differently
+(figure_log <- ggplot(data = SAdatalong, aes(y=logvalue, x=diet)) + geom_boxplot() + 
+  geom_text(aes(label=id2,x=as.numeric(diet))) + 
+   facet_wrap( ~ region + sa, nrow=3, scales="free") + theme_light() + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + theme(legend.position="none") + ggtitle("Acid concentrations log-transformed"))
+
+
+## Start the modelling using glmmTMB.  Begin with a simple model assuming the effect of intervention is the same
+## for each acid in each region, then build from there..
+
+## This model shows that the high fat diet has a higher levels across acids compared to the low fat diet
+## When we take into account correlations within animals and across animals.
+## No effect of region but we would expect this as we have normalised across regions.
+tab_model(glmmTMB1NULL <- glmmTMB( data=SAdatalong, valuenorm ~ 1 + (1|id2/region)))
+tab_model(glmmTMB1diet <- glmmTMB( data=SAdatalong, valuenorm ~ diet + region + sa + (1|id2/region)))
+
+tab_model(glmmTMB1dietLN <- glmmTMB( data=subset(SAdatalong, is.finite(logvalue)), logvalue ~ diet + sa + region  + (1|id2)))
+
+
+tab_model(glmmTMB1dietSERUMln <- glmmTMB( data=subset(SAdatalong,  region=="Serum"),
+                                       logvalue ~ sa + diet  + (1|id2)))
+tab_model(glmmTMB1dietBRAINln <- glmmTMB( data=subset(SAdatalong,  region=="Brain"),
+                                       logvalue ~ sa + diet  + (1|id2)))
+tab_model(glmmTMB1dietCCln <- glmmTMB( data=subset(SAdatalong,  region=="CC"),
+                                       logvalue ~ sa + diet  + (1|id2)))
+
+
+tab_model(glmmTMB1dietSERUM <- glmmTMB( data=subset(SAdatalong, valuenorm  & region=="Serum"),
+                                       valuenorm ~ sa + diet  + (1|id2)))
+tab_model(glmmTMB1dietBRAIN <- glmmTMB( data=subset(SAdatalong, valuenorm  & region=="Brain"),
+                                       valuenorm ~ sa + diet  + (1|id2)))
+tab_model(glmmTMB1dietCC <- glmmTMB( data=subset(SAdatalong, logvalue  & region=="CC"),
+                                       valuenorm ~ sa + diet  + (1|id2)))
+
+tab_model(glmmTMB1dietSERUMln, glmmTMB1dietSERUM)
+tab_model(glmmTMB1dietBRAINln, glmmTMB1dietBRAIN)
+tab_model(glmmTMB1dietCCln, glmmTMB1dietCC)
+
+
+# Does the effect of diet vary across regions?
+## Yes, in the brain LFD have higher acids compared to control, in the serum, HFD have higher acids compared to control.
+
+
+tab_model(glmmTMB1dietSerumSAln <- glmmTMB( data=subset(SAdatalong, is.finite(logvalue)  & region=="Serum"), logvalue ~ sa*diet - diet  + us(sa+0|id2)))
+summary(glmmTMB1dietSerumSAln)
+
+tab_model(glmmTMB1dietBrainSAln <- glmmTMB( data=subset(SAdatalong, is.finite(logvalue)  & region=="Brain"), logvalue ~ sa*diet - diet  + us(sa+0|id2)))
+
+summary(glmmTMB1dietBrainSAln)
+tab_model(glmmTMB1dietCCSAln <- glmmTMB( data=subset(SAdatalong,  region=="CC"), logvalue ~ sa*diet - diet  + us(sa+0|id2)))
+summary(glmmTMB1dietCCSAln)
+
+# ggplot(data=subset(SAdatalong, region=="Brain" & sa=="Neu5, 8Ac2"), aes(y=value, x=diet)) + geom_point() + geom_line(aes(group=id2))
+
+tab_model(glmmTMB1dietSerumSA <- glmmTMB( data=subset(SAdatalong, is.finite(valuenorm)  & region=="Serum"), valuenorm ~ sa*diet - diet  + us(sa+0|id2)))
+summary(glmmTMB1dietSerumSA)
+tab_model(glmmTMB1dietBrainSA <- glmmTMB( data=subset(SAdatalong, is.finite(valuenorm)  & region=="Brain"), valuenorm ~ sa*diet - diet  + us(sa+0|id2)))
+summary(glmmTMB1dietBrainSA)
+tab_model(glmmTMB1dietCCSA <- glmmTMB( data=subset(SAdatalong, is.finite(valuenorm)  & region=="CC"), valuenorm ~ sa*diet - diet  + us(sa+0|id2)))
+summary(glmmTMB1dietCCSA)
+
+tab_model(glmmTMB1dietBrainSA, glmmTMB1dietBrainSAln)
+tab_model(glmmTMB1dietSerumSA, glmmTMB1dietSerumSAln)
+tab_model(glmmTMB1dietCCSA, glmmTMB1dietCCSAln)
+
+
+
+
+## Finally also allow the effects of different acids to vary within a single model: 
+tab_model(glmmTMB1dietregionsaintRS <- glmmTMB( data=SAdatalong, 
+                        valuenorm ~ diet*region*sa - diet*region - diet*sa -1 + us(sa*region+0|id2/region)))
+tab_model(glmmTMB1dietregionsaintRSln <- glmmTMB( data=SAdatalong, 
+                        logvalue ~ diet*region*sa - diet*region - diet*sa -1 + us(sa*region+0|id2/region)))
+
+
+tab_model(glmmTMB1dietregionsaintRS, glmmTMB1dietregionsaintRSln,
+          rm.terms=rownames(coef(summary(glmmTMB1dietregionsaintRS))$cond)[1:18], show.re.var = FALSE, show.r2=FALSE)
+
+tab_model(glmmTMB1dietregionsaintRS, glmmTMB1dietregionsaintRSln, show.r2 = FALSE)
+
+
+# The model coefficients compare the effect of each diet on each acid in each region compared to the control diet, 
+# taking into account the correlation within region and within mice.
+# the correlation structure is assumed to be the same for each acid.
+
+
+
+## What if we just look at the pairwise comparisons for each group seprately, eg with a non-parametric test?
+
+b_high <- as.array(by(data=subset(SAdatalong, diet!="LFD"), 
+     INDICES=list(subset(SAdatalong, diet!="LFD")$region, subset(SAdatalong, diet!="LFD")$sa), 
+     FUN=function(d){
+       wilcox.test( valuenorm ~ diet, data=d)$p.value
+     }, simplify=TRUE))
+
+b_low <-  by(data=subset(SAdatalong, diet!="HFD"), 
+     INDICES=list(subset(SAdatalong, diet!="HFD")$region, subset(SAdatalong, diet!="HFD")$sa), 
+     FUN=function(d){
+       wilcox.test( valuenorm ~ diet, data=d)$p.value
+     })
+
+t(rbind(b_high))
+
+t(rbind(b_low))
+
+emmeans::emmeans(glmmTMB1dietregionsaintRS, spec=~diet*region*sa)
+
+forplotting <- as.data.frame(emmeans::emmeans(glmmTMB1dietregionsaintRS, spec=~diet*region*sa))
+ggplot(data=forplotting, aes(y=emmean, x=diet)) + 
+    geom_point() + 
+    geom_errorbar(aes(ymin=lower.CL, ymax=upper.CL)) + 
+    facet_grid(region ~ sa) + 
+    theme_bw() + theme(axis.text.x = element_text(angle=45, hjust=1)) +
+    ggtitle("Standardised concentrations of acids across regions")
+
+## In case we are worried about multiple testing being the cause of these apparent relationships:
+## There are 36 comparisons in the model, many of them correlated, with six positive at p<0.05
+
+dietcontrasts <- as.data.frame(emmeans::emmeans(glmmTMB1dietregionsaintRS, spec= pairwise ~ diet | region*sa, adjust="none")$contrasts)
+
+ggplot(data=subset(dietcontrasts, contrast %in% c("Control - HFD", "Control - LFD")), aes(y=estimate, x=contrast)) + 
+  geom_point() + 
+  geom_errorbar(aes(ymin=estimate-2*SE, ymax=estimate+2*SE)) + 
+  facet_grid(region ~ sa) + geom_hline(yintercept = 0) + 
+  theme_bw() + theme(axis.text.x = element_text(angle=45, hjust=1)) +
+  ggtitle("Standardised concentrations of acids across regions,\n error bars reflect 95% confidence intervals.")
+ggsave("figure_effects.svg", width=5, height=5)
+
+## P-values comparing different models.
+anova(glmmTMB1diet, glmmTMB1dietregionsaintRS)
+
+
+## Repeat estimation of the final model:
+
+icc(glmmTMB1dietregionsaintRS)
+## icc is 0.42 within regions, 0.01 within mice after correcting for region 
+## so most of the correlation is explained by region effect.
+
+
+## Figure showing the acid levels and summary statistics in each brain area. Publication quality.
+(figure2 <- ggplot(data = SAdatalong, aes(y=value2, x=diet)) + 
+  stat_summary(geom="bar", color = "#FF6666", fill = "#FF6666") + 
+  geom_point() + stat_summary(geom="errorbar",width=.5) + 
+  facet_wrap( ~ region + sa, scales = "free_y",nrow=3) + 
+  theme_light() + ggpubr::rotate_x_text(45) + xlab("Diet") + ylab("Concentration"))
+ggsave("../graph1.svg", device="svg", width=9, height=7)
+
+
+
+g1 <- ggplot(data = subset(SAdatalong, (sa=="Neu5, 8Ac2" & region=="Brain")) , aes(y=value2, x=diet)) + stat_summary(geom="bar", color = "#FF6666", fill = "#FF6666") + geom_point() + stat_summary(geom="errorbar",width=.5) + 
+   theme_light() + ggpubr::rotate_x_text(45) + xlab("Diet") + ylab("Concentration") + ggtitle("Neu5, 8AC2 - Brain")
+
+g2 <- ggplot(data = subset(SAdatalong, (sa=="Neu5, 8Ac2" & region=="Serum")) , aes(y=value2, x=diet)) + stat_summary(geom="bar", color = "#FF6666", fill = "#FF6666") + geom_point() + stat_summary(geom="errorbar",width=.5) + 
+  theme_light() + ggpubr::rotate_x_text(45) + xlab("Diet") + ylab("Concentration") + ggtitle("Neu5, 8AC2 - Serum")
+
+g3 <- ggplot(data = subset(SAdatalong, (sa=="Neu5,7Ac2" & region=="Serum")) , aes(y=value2, x=diet)) + stat_summary(geom="bar", color = "#FF6666", fill = "#FF6666") + geom_point() + stat_summary(geom="errorbar",width=.5) + 
+  theme_light() + ggpubr::rotate_x_text(45) + xlab("Diet") + ylab("Concentration") + ggtitle("Neu5, 7AC2 - Serum")
+
+g4 <- ggplot(data = subset(SAdatalong, (sa=="Neu5,7Ac2" & region=="CC")) , aes(y=value2, x=diet)) + stat_summary(geom="bar", color = "#FF6666", fill = "#FF6666") + geom_point() + stat_summary(geom="errorbar",width=.5) + 
+  theme_light() + ggpubr::rotate_x_text(45) + xlab("Diet") + ylab("Concentration") + ggtitle("Neu5, 7AC2 - CC")
+
+g5 <- ggplot(data = subset(SAdatalong, (sa=="Neu5, Gc9Ac" & region=="CC")) , aes(y=value2, x=diet)) + stat_summary(geom="bar", color = "#FF6666", fill = "#FF6666") + geom_point() + stat_summary(geom="errorbar",width=.5) + 
+  theme_light() + ggpubr::rotate_x_text(45) + xlab("Diet") + ylab("Concentration") + ggtitle("Neu5, Gc9Ac - CC")
+
+figure3 <- grid.arrange(g1, g2, g3, g4, g5, ncol=3)
+gall <- arrangeGrob(g1, g2, g3, g4, g5, ncol=3)
+
+## Same as the above but only including the significantly different acids/areas.
+ggsave("../graph1select.svg",plot=gall, device="svg", width=9, height=7)
+
+
+  #############################
+ ###  OTU analysis ###########
+#############################
+
+
+
+## get the QIIME OTU table:
+
+## If you want to use different data then change the 'counts' table for something else.
+# OTU
+# counts <- data.frame(read_excel("../filtered.xlsx"))
+
+# ASV
+counts <- data.frame(read.table(file="../table.biom.tsv", sep="\t",skip=1, header=TRUE,comment.char = ""))
+
+## Try a different tools for differential abundance.  
+## I did try other methods but with no particular support, see previous versions of this analysis.
+
+
+## Each tool needs the counts in a slightly different format.
+## This is for ANCOM.
+ancom_counts <- as.data.frame.matrix(t(counts), stringsAsFactors=FALSE)
+names(ancom_counts) <- paste0("X",ancom_counts[1,])
+ancom_counts <- data.frame(rownames(ancom_counts),ancom_counts)
+names(ancom_counts)[1] <- "Sample.ID"
+ancom_counts <- ancom_counts[-1,]
+
+# total counts are similar across libraries
+rownames(counts) <- counts[,1]
+counts <- counts[,-1]
+apply(counts, 1, function(x) sum(x[-1]))
+apply(counts, 2, function(x) sum(x[-1]))
+
+## Make the metadata file.
+# First the mouse/treatment labels (manually)
+colData <- data.frame(mouse = c("S6267","S6266","S6264","S6269","S6272","S6271","S6270","S6262","S6265","S6263","S6268"), treatment = factor(c(0,0,1,2,2,2,2,1,1,1,0)))
+rownames(colData) <- colData$mouse
+
+# Now the phenotype (acids) data.
+metaData <- data.frame(SAdata)
+rownames(metaData) <- paste0("S62",metaData$mouse.ID)
+colData <- merge(colData, metaData, by="row.names",all=F)
+## Check the treatment variables 'treatment' and 'diet' are lined up correctly.
+
+
+##############
+# ANCOM ######
+##############
+
+# Adapted the following code on the ANCOM authors website.
+# I adapted it to do some extra reporting and labelling, 
+# I did not change the algorithm in any way.
+
+## I am ignoring the statistical significance 'detected' reporting of ANCOM, just using the pairwise comparisons of the
+## counts and the numbers of taxa for each taxon where there is a difference.
+
+source("U:/work/myRfunctions/ANCOM_updated_code.R")
+## This is how the functions work:
+# ANCOM.main = function(OTUdat,Vardat,
+#                       adjusted,repeated,
+#                       main.var,adj.formula,
+#                       repeat.var,longitudinal,
+#                       random.formula,
+#                       multcorr,sig,
+#                       prev.cut)
+
+## Set up the colData for 'ANCOM'.
+names(colData)[1] <- "Sample.ID"
+colData <- colData[,-2]
+
+# ANCOM Counts file needs to be numeric not factor.
+for(i in 2:dim(ancom_counts)[2]) ancom_counts[,i] <- as.numeric(as.character(ancom_counts[,i]))
+
+# First model use a 0.2 FDR With a BH correction:  No adjustment, KW tests:
+ancom1 <- ANCOM.main(OTUdat=ancom_counts, 
+                     Vardat=colData,
+                     main.var = "treatment", 
+                     prev.cut=0.25, 
+                     adjusted=FALSE, 
+                     repeat.var=NULL,
+                     repeated=FALSE, 
+                     sig=0.2,
+                     multcorr=2)
+
+## Now use p<0.05 as the significance threshold with no correction
+## This is what we will use for the mediation analysis.
+
+##  So each pairwise comparison is being reported as significant if comparison of their log abundances 
+### is significant at p<0.05
+
+ancom_nocorrect_05_ASV <- ANCOM.main(OTUdat=ancom_counts, 
+                                     Vardat=colData,
+                                     main.var = "treatment", 
+                                     prev.cut=0.25, 
+                                     adjusted=FALSE, 
+                                     repeat.var=NULL,
+                                     repeated=FALSE, 
+                                     sig=0.05,
+                                     multcorr=3 )
+
+
+###########################
+# W statistics for ANCOM  #
+###########################
+
+## Now generate the W statistics from each ANCOM model (actually these are exactly the same as the reported statistics,
+## but I wanted to make sure I understood it.
+## Take the top X taxa where there might be a difference.
+## Broadly - this is the number where the number of species higher in the ranking 
+## is about the same as the number differently expressed..
+## It's called top_100 because I initially used the top 100 taxa, now its the top 70 by the new criteria.
+
+## which suggests to me that these taxa are the ones that underlie the difference.
+
+ancom_top_100_ASV <- as.character(ancom_nocorrect_05_ASV$W.taxa$otu.names[1:70])
+
+# Use this later.
+taxonomy <- read.table(file="../taxonomy.tsv", header=TRUE, sep="\t") 
+taxonomy$Feature.ID <- paste0("X",taxonomy$Feature.ID)
+
+
+
+
+#####################################
+##                                ###
+##       MEDIATION ANALYSIS       ###
+##                                ###
+#####################################
+
+
+## Transpose the count matrix so they can act as variables in the mediation analysis
+tCounts <- t(counts)
+acids <- metaData[rownames(tCounts),-c(1,2,3)]
+diet <- metaData[rownames(tCounts),3]
+
+## Turn the counts into relative abundances.
+tSums <- apply(tCounts, 1, sum)
+tProps <- tCounts / tSums
+
+# DO this so the colnames are valid variable names.
+colnames(tProps) <- paste0("X",colnames(tProps))
+
+
+#### Make the dataset for the mediation analysis..
+tcounts <- data.frame(t(counts))
+tprops <- data.frame(tProps)
+
+## by=0 merges on rownames
+## Mergedwide is the complete data with each of the counts 
+mergedWide <- base::merge(tprops, metaData, by=0)
+
+SAdatalongmerged <- reshape2::melt(mergedWide, id.vars=c(1:which(names(mergedWide)=="diet")))
+SAdatalongmerged$variable <- gsub("..","",SAdatalongmerged$variable,fixed=TRUE)
+SAdatalongmerged$variable <- gsub("5.","5",SAdatalongmerged$variable,fixed=TRUE)
+
+## Do the recoding on this dataset as per the original acids dataset.
+SAdatalongmerged$diet <- factor(SAdatalongmerged$diet )
+SAdatalongmerged$region <- factor(unlist(lapply(strsplit(as.character(SAdatalongmerged$variable), '.',fixed=TRUE),'[[',1)))
+SAdatalongmerged$sa <- factor(unlist(lapply(strsplit(as.character(SAdatalongmerged$variable), '.',fixed=TRUE),'[[',2)))
+SAdatalongmerged$variable <- NULL
+
+## Drop outliers as previously.
+SAdatalongmerged$value2 <- SAdatalongmerged$value
+SAdatalongmerged$value2[SAdatalongmerged$sa=="Neu5Gc" & SAdatalongmerged$region=="Brain" & SAdatalongmerged$id2=="2G"] <- NA
+SAdatalongmerged$value2[SAdatalongmerged$sa=="Neu5Gc" & SAdatalongmerged$region=="Serum" & SAdatalongmerged$id2=="2G"] <- NA
+SAdatalongmerged$value2[SAdatalongmerged$sa=="Neu5, 9Ac2" & SAdatalongmerged$region=="Serum" & SAdatalongmerged$id2=="2C"] <- NA
+
+## Normalise as previously.
+SAdatalongmerged$means <- ave(SAdatalongmerged$value2, SAdatalongmerged$sa,SAdatalongmerged$region, FUN=function(x) mean(x,na.rm=TRUE))
+SAdatalongmerged$medians <- ave(SAdatalongmerged$value2, SAdatalongmerged$sa,SAdatalongmerged$region, FUN=function(x) median(x,na.rm=TRUE))
+SAdatalongmerged$sd <- ave(SAdatalongmerged$value2, SAdatalongmerged$sa,SAdatalongmerged$region, FUN=function(x) sd(x,na.rm=TRUE))
+SAdatalongmerged$valuenorm <- (SAdatalongmerged$value2-SAdatalongmerged$means) / SAdatalongmerged$sd
+
+# For each taxon that is differenty abundant, how does controlling for it affect the 
+# estimate of the intervention effect on the acids?
+
+# Need to merge the taxon counts with the acids data.
+
+### This is the main effect.  
+# FULL DATA
+summary(glmmTMB1diet <- glmmTMB( data=SAdatalong, valuenorm ~ diet + (1|id2/region)))
+# REDUCED DATA (fails to converge with the nested region effect added.
+# Never mind, we're not really looking at p-values anyway, just the change in the effects.
+summary(glmmTMB1diet_2 <- glmmTMB( data=SAdatalongmerged, valuenorm ~ diet + (1|id2)))
+# The HFD effect is the same as in the full data
+## It's not statistically significant any more.
+## This is only because the dataset is much smaller, not because the effect is any difference)
+
+
+# This is the optimal model
+# Here is the full model from earlier.
+summary(glmmTMB1dietregionsaintRS_2 <- glmmTMB( data=SAdatalongmerged, 
+                                        valuenorm ~ diet*region*sa - diet*region - diet*sa -1 + (1|id2)))
+
+summary(glmmTMB1NULL_2 <- glmmTMB( data=SAdatalongmerged, 
+                                        valuenorm ~ 1 + (1|id2)))
+
+# The full model is still statistically significant at p<0.05 (for what it's worth).
+anova(glmmTMB1NULL_2, glmmTMB1dietregionsaintRS_2)
+
+
+# For the mediation analysis we can break this down into smaller linear models for each brain area/region.
+
+## This is an exemplar mediation analysis with two models.  
+# The coefficients here are the same as in the full model above, but we're just focussing on the particular comparison of interest.
+summary(lm(valuenorm ~ diet , data=subset(SAdatalongmerged, region=="Serum" & sa=="Neu58Ac2")))
+
+# No effect of the taxon and no mediation effect as the HFD effect is unchanged.
+summary(lm(valuenorm ~ diet + Xda47a7f676f9a37da03e64a99251fd78, data=subset(SAdatalongmerged, region=="Serum" & sa=="Neu58Ac2")))
+
+
+## Now generate all of teh mediation effects for each of the top 100 differentially abundant taxa.
+
+## These measure the effect of diet, controlling for the mediating effect of the differentially expressed taxa.
+## 1-5 are the different affected acids.  First set gets the mediated effects, second set gets the p-value associated with the taxon net of diet.
+
+adjustedeffects1 <- sapply(ancom_top_100_ASV, 
+                          function(x) coef(summary(lm( data=subset(SAdatalongmerged, region=="Brain" & sa=="Neu58Ac2"), 
+                                                         valuenorm ~ diet + get(x) )))[2,1])
+adjustedeffects6 <- sapply(ancom_top_100_ASV, 
+                          function(x) coef(summary(lm( data=subset(SAdatalongmerged, region=="Brain" & sa=="Neu59Ac2"), 
+                                                         valuenorm ~ diet + get(x) )))[2,1])
+adjustedeffects2 <- sapply(ancom_top_100_ASV, 
+                          function(x) coef(summary(lm( data=subset(SAdatalongmerged, region=="Serum" & sa=="Neu58Ac2"), 
+                                                       valuenorm ~ diet + get(x) )))[2,1])
+adjustedeffects3 <- sapply(ancom_top_100_ASV, 
+                          function(x) coef(summary(lm( data=subset(SAdatalongmerged, region=="CC" & sa=="Neu5Gc9Ac"), 
+                                                       valuenorm ~ diet + get(x) )))[2,1])
+adjustedeffects4 <- sapply(ancom_top_100_ASV, 
+                          function(x) coef(summary(lm( data=subset(SAdatalongmerged, region=="CC" & sa=="Neu57Ac2"), 
+                                                       valuenorm ~ diet + get(x) )))[2,1])
+adjustedeffects5 <- sapply(ancom_top_100_ASV, 
+                          function(x) coef(summary(lm( data=subset(SAdatalongmerged, region=="Serum" & sa=="Neu57Ac2"), 
+                                                       valuenorm ~ diet + get(x) )))[2,1])
+
+#### LOG SCALE FOR OUTCOME AND PREDICTOR
+# adjustedeffects1 <- sapply(ancom_top_100_ASV, 
+#                           function(x) coef(summary(lm( 
+#                             data=subset(SAdatalongmerged, is.finite(log(value)) &
+#                                                           is.finite(log(get(x))) & 
+#                                                           region=="Brain" & 
+#                                                           sa=="Neu58Ac2"), 
+#                                                           log(value) ~ diet + log(get(x)) )))[2,1])
+# adjustedeffects2 <- sapply(ancom_top_100_ASV, 
+#                           function(x) coef(summary(lm( 
+#                             data=subset(SAdatalongmerged, is.finite(log(value)) &
+#                                                           is.finite(log(get(x))) & 
+#                                         region=="Serum" & sa=="Neu58Ac2"), 
+#                                                        log(value) ~ diet + log(get(x)) )))[2,1])
+# adjustedeffects3 <- sapply(ancom_top_100_ASV, 
+#                           function(x) coef(summary(lm( data=subset(SAdatalongmerged, is.finite(log(value)) &
+#                                                           is.finite(log(get(x))) & region=="CC" & sa=="Neu5Gc9Ac"), 
+#                                                        log(value) ~ diet + log(get(x)) )))[2,1])
+# adjustedeffects4 <- sapply(ancom_top_100_ASV, 
+#                           function(x) coef(summary(lm( data=subset(SAdatalongmerged, is.finite(log(value)) &
+#                                                           is.finite(log(get(x))) & region=="CC" & sa=="Neu57Ac2"), 
+#                                                        log(value) ~ diet + log(get(x)) )))[2,1])
+# adjustedeffects5 <- sapply(ancom_top_100_ASV, 
+#                           function(x) coef(summary(lm( data=subset(SAdatalongmerged, is.finite(log(value)) &
+#                                                           is.finite(log(get(x))) & region=="Serum" & sa=="Neu57Ac2"), 
+#                                                        log(value) ~ diet + log(get(x)) )))[2,1])
+
+## THESE SHOW THAT ONLY THE FIRST, SECOND and FIFTH EFFECTS CAN BE EXPLAINED BY DIFFERENTIAL TAXA
+hist(adjustedeffects1, main="Brain, Neu58Ac2, HFD", breaks=100, col = "red")
+abline(v=0)
+
+hist(adjustedeffects6, main="Brain, Neu59Ac2, HFD", breaks=100, col = "red")
+abline(v=0)
+
+hist(adjustedeffects2, main="Serum, Neu58Ac2, HFD", breaks=100, col = "red")
+abline(v=0)
+
+hist(adjustedeffects3, main="CC, Neu5 Gc9Ac, HFD", breaks=100, col = "red")
+abline(v=0)
+
+hist(adjustedeffects4, main="CC, Neu5 7Ac2, HFD", breaks=100, col = "red")
+abline(v=0)
+
+hist(adjustedeffects5, main="Serum, Neu5 7Ac2, HFD", breaks=100, col = "red")
+abline(v=0)
+
+## THESE ARE THE EFFECTS OF THE TAXA ON EACH OUTCOME.
+## STRICTLY FOR STATISTICAL SIGNIFICANCE THESE SHOULD BE STATISTICALLY SIGNIFICANT THEMSELVSES
+## BUT I WASN'T HOLDING THEM TO THAT, BECAUSE THE DATA IS SO LIMITED.
+
+adjustedeffects11 <- do.call(rbind,lapply(ancom_top_100_ASV, 
+                           function(x) coef(summary(lm( data=subset(SAdatalongmerged, region=="Brain" & sa=="Neu58Ac2"), 
+                                                        valuenorm ~ diet + get(x) )))[4,]))
+
+adjustedeffects61 <- do.call(rbind,lapply(ancom_top_100_ASV, 
+                           function(x) coef(summary(lm( data=subset(SAdatalongmerged, region=="Brain" & sa=="Neu59Ac2"), 
+                                                        valuenorm ~ diet + get(x) )))[4,]))
+
+
+adjustedeffects21 <- do.call(rbind,lapply(ancom_top_100_ASV, 
+                           function(x) coef(summary(lm( data=subset(SAdatalongmerged, region=="Serum" & sa=="Neu58Ac2"), 
+                                                        valuenorm ~ diet + get(x) )))[4,]))
+
+adjustedeffects31 <- do.call(rbind,lapply(ancom_top_100_ASV, 
+                           function(x) coef(summary(lm( data=subset(SAdatalongmerged, region=="CC" & sa=="Neu5Gc9Ac"), 
+                                                      valuenorm ~ diet + get(x) )))[4,]))
+
+adjustedeffects41 <- do.call(rbind,lapply(ancom_top_100_ASV, 
+                           function(x) coef(summary(lm( data=subset(SAdatalongmerged, region=="CC" & sa=="Neu57Ac2"), 
+                                                        valuenorm ~ diet + get(x) )))[4,]))
+
+adjustedeffects51 <- do.call(rbind,lapply(ancom_top_100_ASV, 
+                           function(x) coef(summary(lm( data=subset(SAdatalongmerged, region=="Serum" & sa=="Neu57Ac2"), 
+                                                        valuenorm ~ diet + get(x) )))[4,]))
+
+
+
+
+#### plot p-values alongside the mediated effect for each potential mediator:
+
+gM1 <- ggplot(as_tibble(cbind(adjustedeffects1, adjustedeffects11), rownames="id"), 
+       aes(x=adjustedeffects1, y=`Pr(>|t|)`)) + xlab("Remaining effect of diet on\nNeu5, 8Ac2 in the brain")+ ylab("P-value for ASV") + 
+       geom_point()
+
+gM2 <- ggplot(as_tibble(cbind(adjustedeffects2, adjustedeffects21), rownames="id"), 
+       aes(x=adjustedeffects2, y=`Pr(>|t|)`)) + xlab("Remaining effect of diet on\nNeu5, 8Ac2 in the serum")+ ylab("P-value for ASV") + 
+  geom_point()
+
+gM3 <- ggplot(as_tibble(cbind(adjustedeffects3, adjustedeffects31), rownames="id"), 
+       aes(x=adjustedeffects3, y=`Pr(>|t|)`)) + xlab("Remaining effect of diet on\nNeu5, GC9Ac in the cecal contents")+ ylab("P-value for ASV") + 
+       geom_point()
+
+gM4 <- ggplot(as_tibble(cbind(adjustedeffects4, adjustedeffects41), rownames="id"), 
+       aes(x=adjustedeffects4, y=`Pr(>|t|)`)) + xlab("Remaining effect of diet on\nNeu5, 7Ac2 in the cecal contents")+ ylab("P-value for ASV") + 
+  geom_point()
+
+gM5 <- ggplot(as_tibble(cbind(adjustedeffects5, adjustedeffects51), rownames="id"), 
+       aes(x=adjustedeffects5, y=`Pr(>|t|)`)) + xlab("Remaining effect of diet on\nNeu5, 7Ac2 in the serum")+ ylab("P-value for ASV") + 
+       geom_point()
+
+gM6 <- ggplot(as_tibble(cbind(adjustedeffects6, adjustedeffects61), rownames="id"), 
+       aes(x=adjustedeffects6, y=`Pr(>|t|)`)) + xlab("Remaining effect of diet on\nNeu5, 9Ac2 in the brain")+ ylab("P-value for ASV") + 
+       geom_point()
+
+
+grid.arrange(gM1,gM2, gM3, gM4, gM5, gM6)  
+
+### For effects 2 and 5 it looks like there is good mediation for a cluster of taxa, that is 
+### a group of taxa with low p-values and good ability to mediate the effect of diet.
+
+
+## WHAT IS THE OVERLAP BETWEEN THE 2 and 5 EFFECTS.
+mediation <- as_tibble(cbind(adjustedeffects1, adjustedeffects11,
+                             adjustedeffects5, adjustedeffects51,
+                             adjustedeffects3, adjustedeffects31,
+                             adjustedeffects4, adjustedeffects41,
+                             adjustedeffects6, adjustedeffects61,
+                             adjustedeffects2, adjustedeffects21), rownames="id")
+names(mediation) <- c("id","effect1","estimate1","sd1","t1","p1",
+                      "effect5","estimate5","sd5","t5","p5",
+                      "effect3","estimate3","sd3","t3","p3",
+                      "effect4","estimate4","sd4","t4","p4",
+                      "effect6","estimate6","sd6","t6","p6",
+                      "effect2","estimate2","sd2","t2","p2")
+ggplot(mediation, 
+       aes(x=p2, y=p5)) + 
+       geom_point()
+
+## ITS THE SAME TAXA
+
+
+#### Judging visually by the plots:
+##  For #5 its those with (say) adjustedeffect <0.5 and p<0.1
+##  For #2 its those with (say) adjustedeffect <0.6 and p<0.1
+
+top_mediators1_ASV <- which(abs(mediation$p1)<0.1 & abs(mediation$effect1<0.5))
+top_mediators2_ASV <- which(abs(mediation$p2)<0.1 & abs(mediation$effect2<0.6))
+top_mediators3_ASV <- which(abs(mediation$p3)<0.1 & abs(mediation$effect3<0.5))
+top_mediators4_ASV <- which(abs(mediation$p4)<0.1 & abs(mediation$effect4<0.6))
+top_mediators5_ASV <- which(abs(mediation$p5)<0.1 & abs(mediation$effect5<0.5))
+top_mediators6_ASV <- which(abs(mediation$p6)<0.1 & abs(mediation$effect6<0.5))
+
+mediators1 <- ancom_top_100_ASV[top_mediators1_ASV]
+mediators6 <- ancom_top_100_ASV[top_mediators6_ASV]
+mediators2 <- ancom_top_100_ASV[top_mediators2_ASV]
+mediators5 <- ancom_top_100_ASV[top_mediators5_ASV]
+
+length(mediators1)
+length(mediators2)
+length(mediators5)
+
+unique(c(mediators2, mediators5))
+
+## Effects 2 and 5 have the same mediators.
+## They are highly correlated with each other.
+
+## Effect 1 has six mediators.
+
+pairs5only <- ggpairs(data=tprops, columns=mediators5) + theme_bw()
+ggpairs(data=tprops, columns=mediators1)
+ggpairs(data=tprops, columns=c(mediators1, mediators5))
+
+## Mediators 5 and 2 are highly collinear with each other, so can be replaced by a single principle component.
+summary(pca1 <- prcomp(x=(tprops[,mediators5]), scale=TRUE) )
+pc1 <- pca1$x[,1]
+mergedWide$`Prin comp 1` <- pc1
+mergedWide$`Prin comp 1e` <- exp(pc1)
+
+tab_model(lm(data = mergedWide, log(Serum.Neu5.7Ac2) ~ diet + pc1))
+tab_model(lm(data = mergedWide, log(Serum.Neu5..8Ac2) ~ diet + pc1))
+
+## Plot mediators 5 (same as 2) alongside outcome.
+ggpairs(data = mergedWide , columns=c(mediators5, "Serum.Neu5.7Ac2","Serum.Neu5..8Ac2"), progress=FALSE)
+
+## Plot mediators 1 alongside outcome.
+ggpairs(data = mergedWide , columns=c(mediators1, "Brain.Neu5..8Ac2"), progress=FALSE)
+
+
+pairs2log <- ggpairs(data = log(dplyr::select(mergedWide, -c(Row.names,id2, diet))) , 
+        columns=c(mediators5, "Serum.Neu5.7Ac2","Serum.Neu5..8Ac2"),
+        mapping=aes(color=mergedWide$diet), progress=FALSE)+ theme_bw() + theme(axis.text.x = element_text(angle=45, hjust=1))
+
+pairs2natural <- ggpairs(data = dplyr::select(mergedWide, -c(Row.names,id2, diet)) , 
+        columns=c(mediators5, "Serum.Neu5.7Ac2","Serum.Neu5..8Ac2"),
+        mapping=aes(color=mergedWide$diet), progress=FALSE)+ theme_bw() + theme(axis.text.x = element_text(angle=45, hjust=1))
+
+pairs1 <- ggpairs(data = dplyr::select(mergedWide, -c(Row.names,id2, diet)) , 
+        columns=c(mediators1, "Brain.Neu5..8Ac2"),
+        mapping=aes(color=mergedWide$diet), progress=FALSE) + theme_bw() + theme(axis.text.x = element_text(angle=45, hjust=1), strip.text.y=element_text(angle=0))
+
+pairs6 <- ggpairs(data = dplyr::select(mergedWide, -c(Row.names,id2, diet)) , 
+        columns=c(mediators6, "Brain.Neu5..9Ac2"),
+        mapping=aes(color=mergedWide$diet), progress=FALSE) + theme_bw() + theme(axis.text.x = element_text(angle=45, hjust=1), strip.text.y=element_text(angle=0))
+
+
+## Look at the correlations between each outcome.
+ggpairs(data = cbind(pc1,log(dplyr::select(mergedWide, -c(Row.names,id2, diet)))) , 
+        columns=c("pc1", names(mergedWide[953:970])),
+        mapping=aes(color=mergedWide$diet), progress=FALSE)
+
+
+
+ancom_nocorrect_05_ASV_adj <- ANCOM.main(OTUdat=ancom_counts, 
+                                     Vardat=colData,
+                                     main.var = "Serum.Neu5..8Ac2", 
+                                     prev.cut=0.25, 
+                                     adjusted= TRUE,
+                                     adj.formula = "treatment",
+                                     longitudinal = FALSE,
+                                     repeat.var=NULL,
+                                     repeated=FALSE, 
+                                     sig=0.05,
+                                     multcorr=3 )
+
+```
+
+
+
+# Aim
+
+Estimate the relationship between sialic acid, dietary intervention and abundance of gut microbes.
+
+# Data
+
+Levels of 6 sialic acids in the brain, serum and cecal contents of 30 mice.
+
+Mice had been subject to dietary intervention, 8 control diet, 13 high fat diet, 9 low fat diet. (confirm why unequal numbers).
+
+16S data reflecting microbial abundances for a subset of 11 mice.
+
+# Hypothesis
+
+Test whether dietary change induces a microbially mediated effect on sialic acid levels.  If there is a mediating effect then we should expect to see:
+  
+  1) An effect of diet on sialic acid levels
+  2) An effect of diet on microbial abundances
+  3) The effect of diet on sialic acid levels explained by microbial abundances
+  4) An effect of microbial abundances on sialic acid levels persisting after controlling for diet
+
+# Analysis plan
+
+## To test condition 1:
+
+Develop a linear mixed model to estimate effects of dietary intervention on:
+  
+  a) overall sialic acid level
+  b) Whether diet affects different sialic acid levels across different regions, by including interaction effects between diet, acid and region in models where indicated.
+
+  Prior to this, descriptive analysis to identify outliers, distribution of outcome, correlation of outcome across acids, regions, and suggest appropriate transformations if needed.
+  
+  Compare different models from a) and b) for statistical significance of interaction terms.
+  Compare models estimated using different transformations to test robustness of results
+  Identify the specific regions and sialic acids that diet affects.
+
+## To test condition 2:
+
+Use the ANCOM algorithm to identify taxa that are differentially abundant across diets.  
+Note the aim is not to demonstrate conclusively that any particular taxon is differently
+abundant, but is to idenify those.
+ 
+ The ANCOM algorithm compares the log counts of each pair of taxa, calculating a W statistic for each taxon reflecting the number of other taxa with which its relative abundance  differs between treatment conditions.  
+ 
+ High W statistics suggest that the taxon in question is genuinely differentially abundant, rather than appearing to be so because of changes in the abundnace of other taxa. Hence this method respects the compositional nature of the data.
+  
+ I used W score as the basis for selecting possible mediators.  The top differently abundant ASVs taxa were taken forward.  The distribution was not cleanly bimodal as suggested in the ANCOM literature, suggesting to me that a high number of ASVs were differentially abundant. This is perhaps unsuprising as this  was a significant dietary intervention that might be expected to affect many gut microbial species. 
+
+ This was chosen as (i) a managable nunmber and (ii) the number for which the W statistic was higher than the rank of the ASV in the ordered differentially abundant list.  Hence each of the taxa identified was differently abundant compared at least as many taxa as were ahead of it in the ranks, and I am likely to have identified a set of taxa that were genuinely differentially abundant and not those that appeared so only because of differences in other taxa.
+
+## To test conditions 3 and 4
+  
+  The abundances of each of the taxa identified in step 2 was included in turn in regression models to test whether it could explain observed effect of diet on acid levels.
+
+  The p-value for the effect of each taxon on acid levels (condition 4), and the modification of the effect of high fat diet on acid levels (condition 3) was plotted to identify mediators for each relationship identified in step 1.
+ 
+  The correlations between outcomes and taxa indentified as potential mediators were then graphically illustrated.
+  
+  
+# Results
+
+## Relationship between Sialic acid and diet
+  
+  Visual inspection of the outcomes suggested that either logarithmic transformation, or normalising the acid concentrations by acid and region are reasonable ways to standardise variances across groups.  (possible improvement that I didn't consider at the time - using a log-link mixed effects model instead?)
+  
+``` {r echo=FALSE, fig.height=10, fig.width=8}
+
+figure_normalised
+
+figure_log
+
+```
+  
+  A correlation matrix for each acid shows that while acids are correlated within brain and within serums (but not within cecal contents), there is no evidence for correlation within the same animal across regions.  The plot of Spearman correlations is shown below:
+  
+  ``` {r echo=FALSE}
+    corrplot::corrplot(cor(SAdata[,4:21], use="pairwise", method="spearman"), order="hclust")
+  ```
+  
+  This suggests that we need to allow separate error structures in each region, as there is little correlation between regions, and the within-mouse correlations are likely to be different in each region.
+  
+  (I tested and diagnosed many different models to develop the final model below and confirm that these associations are robust.  The models I tested are show in the attached R code)
+  
+  The final linear mixed models used shown below (for both log transformed and normalised data).  The interaction terms from each model are reported.  Each tests the contrast between high fat diet or low fat diet and the control diet for a specific acid in a specific area.  P-values less than 0.05, indicating a statistically significant difference between diets, are highlighted in boldface.
+  
+``` {r echo=TRUE}
+glmmTMB1dietregionsaintRS <- glmmTMB( 
+                        data=SAdatalong, 
+                        valuenorm ~ diet*region*sa - 
+                                    diet*region - 
+                                    diet*sa -1 + 
+                                    us(sa*region+0|id2/region))
+
+glmmTMB1dietregionsaintRSln <- glmmTMB( 
+                        data=SAdatalong, 
+                        logvalue ~ diet*region*sa - 
+                                   diet*region - 
+                                   diet*sa - 1 + 
+                                   us(sa*region+0|id2/region))
+
+tab_model(glmmTMB1dietregionsaintRS, 
+          glmmTMB1dietregionsaintRSln,
+          rm.terms=rownames(coef(summary(glmmTMB1dietregionsaintRS))$cond)[1:18], 
+          show.re.var = FALSE, 
+          show.r2=FALSE)
+
+
+```
+
+While there is no correction for multiple testing here, testing this model against a null model and against a model only including main effects of diet, region and area suggests that the interaction terms do lead to a statistically improved model fit, and so these should be taken as our estimates of the effect of the dietary intervention.
+
+There are minor differences between the different models in which acids in which areas are 'significantly' different between dietary conditions.  There is no clear reason to select one or other transformation.  To check whether the 'significant' results are an artefact of outliers or a particular transformation I also tested differences using Wilcoxon tests.  The results are below (each represents a p-value for a specific comparison between diets within a specific region):
+
+``` {r echo=FALSE}
+
+## High fat diet vs control (Mann-Whitney test p-values)
+
+data.frame(t(rbind(b_high)))
+
+## Low fat diet vs control (Mann-Whitney test p-values)
+
+data.frame(t(rbind(b_low)))
+
+```
+
+The most robust associations are between High fat diet (vs control) and serum levels of Neu5,8Ac2 and Neu5,7Ac2, High fat diet and cecal contents levels of Neu5,7Ac2, and Neu5,GC9Ac.  The associations between Neu5, 8Ac2 and Neu5, 9Ac2 in the brain and high fat diet also appear robust. 
+
+[ TO ADD - NEW LOW FAT DIET VS CONTROL ASSOCIATIONS ]
+
+## Relationship between microbial taxa and diet
+  
+The top 70 differently abundant taxa identified as described above are listed at the end of this report. 
+
+# Mediation analysis
+
+The mediating effects for each potential taxon on each of the relationships identified above are plotted in the figures below.
+```{r }
+grid.arrange(gM1,gM2, gM3, gM4, gM5, gM6) 
+``` 
+
+Each panel in the graph above represents an association between diet and sialic acid seen the analysis above, and each point represents the mediating effect of a single taxon on that relationship.  An effect is mediated when the adjusted effect is close to zero, and the p-value for the mediator is low.  
+
+There were no evident microbial mediators of the relationship between diet and concentrations of Neu5,Gc9Ac and Neu5,7Ac2 in cecal contents (panels 3 and 4 above) nor between diet and concentration of Neu5,9Ac2 in the brain (panel 6).
+
+The link between diet and Neu5,8Ac2 concentration in the brain could be explained by differences in abundance of six different ASVs (panel 1), these are listed below.
+
+``` {r echo=FALSE}
+taxonomy[taxonomy$Feature.ID %in% mediators1,]
+```
+
+However, when plotted, it is evident that the relationship between these ASV abundnaces and sialic acid is negative (higher adbundance leads to lower values), and that the correlations between abundance, outcome and diet could be driven by one or two outlying values in many cases.
+
+``` {r echo=FALSE, fig.height=10, fig.width=8}
+
+pairs1
+
+```
+
+
+## Mediators of serum Neu58Ac2 and Neu57Ac2
+
+Serum Neu5,8Ac2 and Neu5,7Ac2 are highly correlated, and have the same association with diet which is completed mediated by the same seven ASVs (panels 2 and 5 in the mediation plot).
+
+``` {r }
+
+taxonomy[taxonomy$Feature.ID %in% mediators2,]
+
+```
+
+Graphing the relative abundances of these suggests that they are very highly correlated with each other, are very highly correlated with outcomes, and are very highly correlated with diet.
+ 
+``` {r, fig.height=10, fig.width=8}
+
+pairs2log
+
+```
+  
+However within dietary groups it isn't clear that there is a particularly strong relationship between abundance and acid levels. Although this is statistically significant it is likely to be driven by one or two points, and there are so few observations in each dietary group that seeing any robust correlation within diet groups is impossible.
+    
+Hence the observed mediation effect is as good as it could be given the limitation of the dataset, but there are so few data points it can only be considered hypothesis generating.
+
+# Srengths and limitations
+
+## Limitations of the analysis
+
+The extremely small numbers of observations within dietary groups and the large number of potential mediators makes it difficult to be sure that the mediating effect will be replicable.
+
+Different approaches to looking for differences in sialic acid levels across groups identify different acids in different regions.  However some of the associations were robust against the analytical method.
+
+Although there certainly are broad differences in sialic acid levels by dietary groups, and at least some relationships between acid levels and microbial abundances, none of the specific relationships described are statistically significant 
+by usual threhsolds after correction for multiple testing, so we can't be sure that the exact relationships identified would reproduce.
+    
+The experimental design may have led to cross-contamination between individuals within treatment groups, leading to questionable validity of any of the statistical analysis.
+    
+There were outlying values of dietary acids, some of these were removed prior to analysis but with very small numbers it is difficult to be sure of residual distributions, and in some groups the variances of acids seems low.
+
+The cut off for W scores in ANCOM was arbitrary, as the distribution was not bimodal as anticipated in the ANCOM documentation, however as this was being used to screen for possibly interesting taxa this I think the approach used in reasonable.
+
+## Strengths of the analysis
+
+Two different transformations of the outcome measures were applied with similar results in each case.
+
+Two different approaches to the classification of 16S results were applied (analysis based on OTUs not shown)
+
+ANCOM algorithm is suitable for compositional data, unlike many other microbiome analysis methods.
+
+# List of ASVs associated with diet:
+
+The ASVs associated with diet along with W statistics for each are shown below.
+
+For an explanation of W statistics see the ANCOM documentation (https://www.ncbi.nlm.nih.gov/pubmed/26028277)
+
+```{r }
+fullist <- merge(ancom_nocorrect_05_ASV$W.taxa[1:70,1:2], taxonomy, by.x="otu.names", by.y = "Feature.ID")
+fullist[order(-fullist$W_stat),]
+```
